@@ -1,0 +1,22 @@
+{
+  "name": "socket-server",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch index.js",
+    "start": "node index.js"
+  },
+  "description": "",
+  "main": "index.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@socket.io/redis-adapter": "^8.3.0",
+    "dotenv": "^18.0.10",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.23.1",
+    "redis": "^6.3.1",
+    "socket.io": "^4.8.4"
+  }
+}

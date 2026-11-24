@@ -1,0 +1,277 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ----------------------------------------------------------
+// AUTH / ACCOUNT
+// ----------------------------------------------------------
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  password      String?   // now OPTIONAL — OAuth users won't have one
+  name          String?   // added — OAuth providers populate this
+  image         String?   // added — OAuth avatar
+  emailVerified DateTime? // CHANGED from Boolean — adapter requires DateTime?
+  role          UserRole  @default(MEMBER)
+  isActive      Boolean   @default(true)
+  lastActiveAt  DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  profile    Profile?
+  preference Preference?
+
+  accounts Account[] // added — for OAuth account linking
+  sessions Session[] // added — required by adapter
+
+  sentSwipes     Swipe[] @relation("swiper")
+  receivedSwipes Swipe[] @relation("swipee")
+
+  matchesAsA Match[] @relation("matchUserA")
+  matchesAsB Match[] @relation("matchUserB")
+
+  messages Message[]
+
+  blocksSent      Block[]  @relation("blocker")
+  blocksReceived  Block[]  @relation("blocked")
+  reportsSent     Report[] @relation("reporter")
+  reportsReceived Report[] @relation("reported")
+}
+
+// ---- Auth.js required models ----
+model Account {
+  id                String  @id @default(uuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ----------------------------------------------------------
+// PROFILE (the dating-facing identity)
+// ----------------------------------------------------------
+model Profile {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  displayName String
+  bio         String?
+  birthDate   DateTime
+  gender      String   // kept as String for inclusivity/extensibility
+
+  // Location — plain floats for now (see note in 3.3)
+  latitude          Float?
+  longitude         Float?
+  city              String?
+  locationUpdatedAt DateTime?
+
+  interests  String[] // native Postgres text[]
+  attributes Json?    // JSONB — flexible lifestyle tags (smoking, drinking, etc.)
+
+  isVerified Boolean @default(false) // photo/selfie verification badge
+
+  photos Photo[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([latitude, longitude])
+}
+
+model Photo {
+  id        String      @id @default(uuid())
+  profileId String
+  profile   Profile     @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  url       String
+  order     Int         @default(0)
+  isPrimary Boolean     @default(false)
+  status    PhotoStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+
+  @@index([profileId])
+}
+
+// ----------------------------------------------------------
+// MATCHING PREFERENCES
+// ----------------------------------------------------------
+model Preference {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  minAge         Int      @default(18)
+  maxAge         Int      @default(99)
+  maxDistanceKm  Int      @default(50)
+  seekingGenders String[] // which genders this user wants to see
+
+  updatedAt DateTime @updatedAt
+}
+
+// ----------------------------------------------------------
+// SWIPES & MATCHES
+// ----------------------------------------------------------
+model Swipe {
+  id       String    @id @default(uuid())
+  swiperId String
+  swiper   User      @relation("swiper", fields: [swiperId], references: [id], onDelete: Cascade)
+  swipeeId String
+  swipee   User      @relation("swipee", fields: [swipeeId], references: [id], onDelete: Cascade)
+
+  type      SwipeType
+  createdAt DateTime  @default(now())
+
+  @@unique([swiperId, swipeeId]) // one decision per pair
+  @@index([swipeeId])
+}
+
+model Match {
+  id      String @id @default(uuid())
+  userAId String
+  userA   User   @relation("matchUserA", fields: [userAId], references: [id], onDelete: Cascade)
+  userBId String
+  userB   User   @relation("matchUserB", fields: [userBId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  conversation Conversation?
+
+  @@unique([userAId, userBId])
+  @@index([userBId])
+}
+
+// ----------------------------------------------------------
+// CHAT (stored in Postgres; served in real time by Socket.io)
+// ----------------------------------------------------------
+model Conversation {
+  id      String @id @default(uuid())
+  matchId String @unique
+  match   Match  @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  lastMessageAt DateTime?
+  createdAt     DateTime  @default(now())
+
+  messages Message[]
+}
+
+model Message {
+  id             String        @id @default(uuid())
+  conversationId String
+  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User          @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  content   String        @default("")   // text (empty for image-only messages)
+  mediaUrl  String?                       // image URL when type = IMAGE  
+  type      MessageType   @default(TEXT)
+  status    MessageStatus @default(SENT)
+  createdAt DateTime      @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+model Block {
+  id        String   @id @default(uuid())
+  blockerId String
+  blocker   User     @relation("blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedId String
+  blocked   User     @relation("blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+}
+
+model Report {
+  id         String       @id @default(uuid())
+  reporterId String
+  reporter   User         @relation("reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reportedId String
+  reported   User         @relation("reported", fields: [reportedId], references: [id], onDelete: Cascade)
+  reason     ReportReason
+  details    String?
+  status     ReportStatus @default(PENDING)
+  createdAt  DateTime     @default(now())
+
+  @@index([reportedId])
+  @@index([status])
+}
+
+// ----------------------------------------------------------
+// ENUMS
+// ----------------------------------------------------------
+enum UserRole {
+  MEMBER
+  ADMIN
+}
+enum MessageType {
+  TEXT
+  IMAGE
+}
+
+enum PhotoStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum SwipeType {
+  LIKE
+  PASS
+  SUPERLIKE
+}
+
+enum MessageStatus {
+  SENT
+  DELIVERED
+  READ
+}
+
+enum ReportReason {
+  INAPPROPRIATE_CONTENT
+  HARASSMENT
+  SPAM
+  FAKE_PROFILE
+  UNDERAGE
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  ACTIONED
+  DISMISSED
+}
